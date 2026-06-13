@@ -13,6 +13,7 @@ def get_d_eff(
     rcond=1e-10,
     engine="auto",
     use_base_state=True,
+    lam=1.0,
 ):
     """Compute effective degrees of freedom (d_eff) for the specified layers.
 
@@ -35,6 +36,8 @@ def get_d_eff(
                      'parameter'     — primal formulation O(d^3)
     use_base_state : if True (default) and model has _adr_base_state, evaluate at the
                      stored base state; if False, evaluate at the current parameter state
+    lam            : float (default 1.0) — scales the constraint Jacobian J; in the NTK
+                     engine K = [Psi_n; lam*J], in the parameter engine A = Q + lam^2 * J^T J
 
     Returns
     -------
@@ -51,14 +54,14 @@ def get_d_eff(
             if name in model._adr_base_state:
                 p.data.copy_(model._adr_base_state[name])
     try:
-        return _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine)
+        return _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine, lam)
     finally:
         for name, p in model.named_parameters():
             p.data.copy_(current_state[name])
         model.train(was_training)
 
 
-def _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine):
+def _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine, lam=1.0):
     params = get_target_params(model, target_layers)
     d_params = sum(p.numel() for p in params)
 
@@ -99,7 +102,7 @@ def _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine):
         J_bc_n = J_bc_raw / len(J_bc_raw) ** 0.5
 
     def _deff_ntk(J):
-        K = torch.cat([Psi_n, J], dim=0)
+        K = torch.cat([Psi_n, lam * J], dim=0)
         G = K @ K.T
         scale = G.diagonal().mean().clamp(min=1e-30).sqrt()
         G_pinv = torch.linalg.pinv(G / scale, rcond=rcond, hermitian=True) / scale
@@ -109,7 +112,7 @@ def _compute(model, pde_fn, target_layers, x_pde, x_bc, mode, rcond, engine):
 
     def _deff_parameter(J):
         Q = Psi_n.T @ Psi_n
-        A = Q + J.T @ J
+        A = Q + lam**2 * J.T @ J
         scale = A.diagonal().mean().clamp(min=1e-30).sqrt()
         A_pinv = torch.linalg.pinv(A / scale, rcond=rcond, hermitian=True) / scale
         QA = Q @ A_pinv
