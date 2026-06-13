@@ -12,6 +12,7 @@ def get_d_eff(
     mode="all",
     rcond=1e-10,
     engine="auto",
+    use_base_state=True,
 ):
     """Compute effective degrees of freedom (d_eff) for the specified layers.
 
@@ -21,17 +22,19 @@ def get_d_eff(
 
     Parameters
     ----------
-    model         : nn.Module
-    pde_fn        : callable(model, x) -> residual [N, 1] or [N]
-                    must use create_graph=True for spatial derivatives internally
-    target_layers : list of int or str
-    x_pde         : tensor [N, d_in] — collocation points for PDE and spatial eval
-    x_bc          : tensor [K, d_in] — BC collocation points (required unless mode='pde')
-    mode          : 'pde', 'bc', 'total', or 'all'
-    rcond         : singular value / eigenvalue cutoff for rank truncation
-    engine        : 'auto' (default) — ntk when d > N+M, parameter otherwise
-                    'ntk'           — dual formulation O((N+M)^3)
-                    'parameter'     — primal formulation O(d^3)
+    model          : nn.Module
+    pde_fn         : callable(model, x) -> residual [N, 1] or [N]
+                     must use create_graph=True for spatial derivatives internally
+    target_layers  : list of int or str
+    x_pde          : tensor [N, d_in] — collocation points for PDE and spatial eval
+    x_bc           : tensor [K, d_in] — BC collocation points (required unless mode='pde')
+    mode           : 'pde', 'bc', 'total', or 'all'
+    rcond          : singular value / eigenvalue cutoff for rank truncation
+    engine         : 'auto' (default) — ntk when d > N+M, parameter otherwise
+                     'ntk'           — dual formulation O((N+M)^3)
+                     'parameter'     — primal formulation O(d^3)
+    use_base_state : if True (default) and model has _adr_base_state, evaluate at the
+                     stored base state; if False, evaluate at the current parameter state
 
     Returns
     -------
@@ -41,7 +44,7 @@ def get_d_eff(
     was_training = model.training
     model.eval()
     current_state = {n: p.data.clone() for n, p in model.named_parameters()}
-    if hasattr(model, "_adr_base_state"):
+    if use_base_state and hasattr(model, "_adr_base_state"):
         # want to ensure that the base state is used for the Jacobian computation
         # not the current state which may have been updated by some adaptation
         for name, p in model.named_parameters():
