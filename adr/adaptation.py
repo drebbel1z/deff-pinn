@@ -63,7 +63,9 @@ def _eval_bc(model, param_dict, bc, device):
     if bc["type"] == "dirichlet":
         return pred, x_t
     elif bc["type"] == "neumann":
-        val = torch.autograd.grad(pred, x_t, create_graph=True)[0][0]
+        # Index both axes so this is 0-d like the Dirichlet branch, else
+        # torch.stack in _bc_jac fails on mixed BCs.
+        val = torch.autograd.grad(pred, x_t, create_graph=True)[0][0, 0]
         return val, x_t
     else:
         raise ValueError(
